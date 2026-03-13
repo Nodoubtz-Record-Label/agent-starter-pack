@@ -80,6 +80,19 @@ def run_create_command(
             logging.error(f"Command failed: {result.stderr}")
             return False
 
+        # Verify the project was actually created (create command may
+        # silently return without generating output on validation errors)
+        expected_dir = output_dir / project_name
+        if not expected_dir.exists():
+            logging.error(
+                f"Create command succeeded but project directory not found: {expected_dir}"
+            )
+            if result.stderr:
+                logging.error(f"stderr: {result.stderr}")
+            if result.stdout:
+                logging.error(f"stdout: {result.stdout}")
+            return False
+
         return True
     except subprocess.TimeoutExpired:
         logging.error("Command timed out")
@@ -168,6 +181,7 @@ def handle_conflict(
     project_dir: pathlib.Path,
     new_template_dir: pathlib.Path,
     auto_approve: bool,
+    prefer_new: bool = False,
 ) -> str:
     """Handle a file conflict interactively.
 
@@ -175,12 +189,16 @@ def handle_conflict(
         result: The conflict result
         project_dir: Path to current project
         new_template_dir: Path to new template
-        auto_approve: If True, keep user's version
+        auto_approve: If True, keep user's version (unless prefer_new is set)
+        prefer_new: If True with auto_approve, use new template version instead
 
     Returns:
         Action taken: "kept", "kept_all", "updated", "updated_all", or "skipped"
     """
     if auto_approve:
+        if prefer_new:
+            console.print(f"  [green]Using new version: {result.path}[/green]")
+            return "updated"
         console.print(f"  [dim]Keeping your version: {result.path}[/dim]")
         return "kept"
 
@@ -264,6 +282,7 @@ def apply_changes(
     new_template_dir: pathlib.Path,
     auto_approve: bool,
     dry_run: bool,
+    prefer_new: bool = False,
 ) -> dict[str, int]:
     """Apply file changes to the project."""
     counts = {
@@ -309,7 +328,9 @@ def apply_changes(
                 counts["conflicts_updated"] += 1
             continue
 
-        action = handle_conflict(result, project_dir, new_template_dir, auto_approve)
+        action = handle_conflict(
+            result, project_dir, new_template_dir, auto_approve, prefer_new
+        )
         if action == "kept_all":
             counts["conflicts_kept"] += 1
             bulk_action = "keep"
